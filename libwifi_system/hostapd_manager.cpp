@@ -183,7 +183,6 @@ string HostapdManager::CreateHostapdConfig(
       "ieee80211n=1\n"
       "hw_mode=%c\n"
       "ignore_broadcast_ssid=%d\n"
-      "wowlan_triggers=any\n"
       "%s",
       interface_name.c_str(),
       ssid_as_string.c_str(),
