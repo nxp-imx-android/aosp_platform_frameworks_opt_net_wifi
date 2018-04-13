@@ -520,6 +520,8 @@ public class WifiServiceImpl extends BaseWifiService {
         Slog.i(TAG, "WifiService starting up with Wi-Fi " +
                 (wifiEnabled ? "enabled" : "disabled"));
 
+        boolean wifiStateStored = wifiEnabled;
+
         registerForScanModeChange();
         mContext.registerReceiver(
                 new BroadcastReceiver() {
@@ -566,6 +568,24 @@ public class WifiServiceImpl extends BaseWifiService {
                     }
                 },
                 new IntentFilter(WifiManager.WIFI_AP_STATE_CHANGED_ACTION));
+
+        mContext.registerReceiver(
+                new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        try {
+                            Thread.sleep(5000);
+                        }catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        Log.d(TAG, "boot completed do start wifi\n");
+
+                        if (wifiStateStored) {
+                            setWifiEnabled(mContext.getPackageName(), wifiStateStored);
+                        }
+                    }
+                },
+                new IntentFilter(Intent.ACTION_BOOT_COMPLETED));
 
         // Adding optimizations of only receiving broadcasts when wifi is enabled
         // can result in race conditions when apps toggle wifi in the background
