@@ -551,7 +551,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                     @Override
                     public void onReceive(Context context, Intent intent) {
                         try {
-                            Thread.sleep(2000);
+                            Thread.sleep(5000);
                         }catch (InterruptedException e) {
                             e.printStackTrace();
                         }
