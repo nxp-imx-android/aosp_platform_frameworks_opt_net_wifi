@@ -33,7 +33,10 @@ namespace wifi_system {
 namespace {
 
 const char kSupplicantInitProperty[] = "init.svc.wpa_supplicant";
+
 const char kSupplicantServiceName[] = "wpa_supplicant";
+const char kWifiVendorName[] = "ro.boot.wifivendor";
+char kUniteSupplicantServiceName[PROPERTY_VALUE_MAX] = {'\0'};
 
 }  // namespace
 
@@ -42,31 +45,52 @@ bool SupplicantManager::StartSupplicant() {
   int count = 200; /* wait at most 20 seconds for completion */
   const prop_info* pi;
   unsigned serial = 0;
-
+  char kUniteSupplicantInitProperty[PROPERTY_VALUE_MAX] = "init.svc.";
   /* Check whether already running */
-  if (property_get(kSupplicantInitProperty, supp_status, NULL) &&
-      strcmp(supp_status, "running") == 0) {
-    return true;
+
+  property_get(kWifiVendorName, kUniteSupplicantServiceName, "NULL");
+  if (strcmp(kUniteSupplicantServiceName, "NULL") != 0) {
+    strcat(kUniteSupplicantServiceName,"_");
+    strcat(kUniteSupplicantServiceName,kSupplicantServiceName);
+    strcat(kUniteSupplicantInitProperty,kUniteSupplicantServiceName);
+
+    if (property_get(kUniteSupplicantInitProperty, supp_status, NULL) &&
+        strcmp(supp_status, "running") == 0) {
+      return true;
+    }
+    pi = __system_property_find(kUniteSupplicantInitProperty);
+  } else {
+    if (property_get(kSupplicantInitProperty, supp_status, NULL) &&
+        strcmp(supp_status, "running") == 0) {
+      return true;
+    }
+    /*
+    * Get a reference to the status property, so we can distinguish
+    * the case where it goes stopped => running => stopped (i.e.,
+    * it start up, but fails right away) from the case in which
+    * it starts in the stopped state and never manages to start
+    * running at all.
+    */
+    pi = __system_property_find(kSupplicantInitProperty);
   }
 
-  /*
-   * Get a reference to the status property, so we can distinguish
-   * the case where it goes stopped => running => stopped (i.e.,
-   * it start up, but fails right away) from the case in which
-   * it starts in the stopped state and never manages to start
-   * running at all.
-   */
-  pi = __system_property_find(kSupplicantInitProperty);
   if (pi != NULL) {
     serial = __system_property_serial(pi);
   }
 
-  property_set("ctl.start", kSupplicantServiceName);
+
+  if (strcmp(kUniteSupplicantServiceName, "NULL") != 0)
+    property_set("ctl.start", kUniteSupplicantServiceName);
+  else
+    property_set("ctl.start", kSupplicantServiceName);
   sched_yield();
 
   while (count-- > 0) {
     if (pi == NULL) {
-      pi = __system_property_find(kSupplicantInitProperty);
+      if (strcmp(kUniteSupplicantServiceName, "NULL") != 0)
+        pi = __system_property_find(kUniteSupplicantInitProperty);
+      else
+        pi = __system_property_find(kSupplicantInitProperty);
     }
     if (pi != NULL) {
       /*
@@ -90,19 +114,37 @@ bool SupplicantManager::StartSupplicant() {
 bool SupplicantManager::StopSupplicant() {
   char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
   int count = 50; /* wait at most 5 seconds for completion */
-
+  char kUniteSupplicantInitProperty[PROPERTY_VALUE_MAX] = "init.svc.";
+ 
+  property_get(kWifiVendorName, kUniteSupplicantServiceName, "NULL");
   /* Check whether supplicant already stopped */
-  if (property_get(kSupplicantInitProperty, supp_status, NULL) &&
-      strcmp(supp_status, "stopped") == 0) {
-    return true;
+  if (strcmp(kUniteSupplicantServiceName, "NULL") != 0) {
+    strcat(kUniteSupplicantServiceName,"_");
+    strcat(kUniteSupplicantServiceName,kSupplicantServiceName);
+    strcat(kUniteSupplicantInitProperty,kUniteSupplicantServiceName);
+    if (property_get(kUniteSupplicantInitProperty, supp_status, NULL) &&
+        strcmp(supp_status, "stopped") == 0) {
+      return true;
+    }
+    property_set("ctl.stop", kUniteSupplicantServiceName);
+  } else {
+    if (property_get(kSupplicantInitProperty, supp_status, NULL) &&
+        strcmp(supp_status, "stopped") == 0) {
+      return true;
+    }
+    property_set("ctl.stop", kSupplicantServiceName);
   }
-
-  property_set("ctl.stop", kSupplicantServiceName);
   sched_yield();
 
   while (count-- > 0) {
-    if (property_get(kSupplicantInitProperty, supp_status, NULL)) {
-      if (strcmp(supp_status, "stopped") == 0) return true;
+    if (strcmp(kUniteSupplicantServiceName, "NULL") != 0) {
+      if (property_get(kUniteSupplicantInitProperty, supp_status, NULL)) {
+        if (strcmp(supp_status, "stopped") == 0) return true;
+      }
+    } else {
+      if (property_get(kSupplicantInitProperty, supp_status, NULL)) {
+        if (strcmp(supp_status, "stopped") == 0) return true;
+      }
     }
     usleep(100000);
   }
@@ -112,8 +154,20 @@ bool SupplicantManager::StopSupplicant() {
 
 bool SupplicantManager::IsSupplicantRunning() {
   char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
-  if (property_get(kSupplicantInitProperty, supp_status, NULL)) {
-    return strcmp(supp_status, "running") == 0;
+  char kUniteSupplicantInitProperty[PROPERTY_VALUE_MAX] = "init.svc.";
+ 
+  property_get(kWifiVendorName, kUniteSupplicantServiceName, "NULL");
+  if (strcmp(kUniteSupplicantServiceName, "NULL") != 0) {
+    strcat(kUniteSupplicantServiceName,"_");
+    strcat(kUniteSupplicantServiceName,kSupplicantServiceName);
+    strcat(kUniteSupplicantInitProperty,kUniteSupplicantServiceName);
+    if (property_get(kUniteSupplicantInitProperty, supp_status, NULL)) {
+        return strcmp(supp_status, "running") == 0;
+    }
+  } else {
+    if (property_get(kSupplicantInitProperty, supp_status, NULL)) {
+        return strcmp(supp_status, "running") == 0;
+    }
   }
   return false;  // Failed to read service status from init.
 }

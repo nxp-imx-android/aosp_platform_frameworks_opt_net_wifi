@@ -87,7 +87,11 @@ include $(BUILD_STATIC_LIBRARY)
 # ============================================================
 LIB_WIFI_HAL := libwifi-hal-fallback
 VENDOR_LOCAL_SHARED_LIBRARIES :=
-ifeq ($(BOARD_WLAN_DEVICE), bcmdhd)
+ifeq ($(BOARD_WLAN_DEVICE),  UNITE)
+  LIB_WIFI_HAL_BCM := libwifi-hal-bcm
+  LIB_WIFI_HAL_QCOM := libwifi-hal-qcom
+  VENDOR_LOCAL_SHARED_LIBRARIES := libcld80211
+else ifeq ($(BOARD_WLAN_DEVICE), bcmdhd)
   LIB_WIFI_HAL := libwifi-hal-bcm
 else ifeq ($(BOARD_WLAN_DEVICE), qcwcn)
   LIB_WIFI_HAL := libwifi-hal-qcom
@@ -140,3 +144,51 @@ LOCAL_EXPORT_C_INCLUDE_DIRS := \
     $(LOCAL_PATH)/include \
     $(LOCAL_PATH)/testlib/include
 include $(BUILD_STATIC_LIBRARY)
+
+# The BCM WiFi HAL that you should be linking.
+# ============================================================
+ifeq ($(BOARD_WLAN_DEVICE), UNITE)
+include $(CLEAR_VARS)
+LOCAL_MODULE := libwifi-hal-unite-bcm
+LOCAL_PROPRIETARY_MODULE := true
+LOCAL_CFLAGS := $(wifi_hal_cflags)
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
+LOCAL_EXPORT_C_INCLUDE_DIRS := \
+    $(LOCAL_PATH)/include
+LOCAL_EXPORT_HEADER_LIBRARY_HEADERS := libhardware_legacy_headers
+LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers
+LOCAL_SHARED_LIBRARIES := \
+    libbase \
+    libcutils \
+    liblog \
+    libnl \
+    libutils \
+    $(VENDOR_LOCAL_SHARED_LIBRARIES)
+LOCAL_SRC_FILES := \
+    driver_tool.cpp \
+    hal_tool.cpp
+LOCAL_WHOLE_STATIC_LIBRARIES := $(LIB_WIFI_HAL_BCM) libwifi-hal-common
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := libwifi-hal-unite-qca
+LOCAL_PROPRIETARY_MODULE := true
+LOCAL_CFLAGS := $(wifi_hal_cflags)
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
+LOCAL_EXPORT_C_INCLUDE_DIRS := \
+    $(LOCAL_PATH)/include
+LOCAL_EXPORT_HEADER_LIBRARY_HEADERS := libhardware_legacy_headers
+LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers
+LOCAL_SHARED_LIBRARIES := \
+    libbase \
+    libcutils \
+    liblog \
+    libnl \
+    libutils \
+    $(VENDOR_LOCAL_SHARED_LIBRARIES)
+LOCAL_SRC_FILES := \
+    driver_tool.cpp \
+    hal_tool.cpp
+LOCAL_WHOLE_STATIC_LIBRARIES := $(LIB_WIFI_HAL_QCOM) libwifi-hal-common
+include $(BUILD_SHARED_LIBRARY)
+endif
