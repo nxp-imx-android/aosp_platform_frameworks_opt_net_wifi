@@ -22,11 +22,23 @@
 namespace android {
 namespace wifi_system {
 const char kHostapdServiceName[] = "hostapd";
+const char kWifiVendorName[] = "ro.boot.wifivendor";
+char kUniteHostapdServiceName[PROPERTY_VALUE_MAX] = {'\0'};
 
 bool HostapdManager::StartHostapd() {
-  if (property_set("ctl.start", kHostapdServiceName) != 0) {
-    LOG(ERROR) << "Failed to start SoftAP";
-    return false;
+  property_get(kWifiVendorName, kUniteHostapdServiceName, "NULL");
+  if (strcmp(kUniteHostapdServiceName, "NULL") != 0) {
+    strcat(kUniteHostapdServiceName,"_");
+    strcat(kUniteHostapdServiceName,kHostapdServiceName);
+    if (property_set("ctl.start", kUniteHostapdServiceName) != 0) {
+      LOG(ERROR) << "Failed to start SoftAP";
+      return false;
+    }
+  } else {
+    if (property_set("ctl.start", kHostapdServiceName) != 0) {
+      LOG(ERROR) << "Failed to start SoftAP";
+      return false;
+    }
   }
 
   LOG(DEBUG) << "SoftAP started successfully";
@@ -35,10 +47,19 @@ bool HostapdManager::StartHostapd() {
 
 bool HostapdManager::StopHostapd() {
   LOG(DEBUG) << "Stopping the SoftAP service...";
-
-  if (property_set("ctl.stop", kHostapdServiceName) < 0) {
-    LOG(ERROR) << "Failed to stop hostapd service!";
-    return false;
+  property_get(kWifiVendorName, kUniteHostapdServiceName, "NULL");
+  if (strcmp(kUniteHostapdServiceName, "NULL") != 0) {
+    strcat(kUniteHostapdServiceName,"_");
+    strcat(kUniteHostapdServiceName,kHostapdServiceName);
+    if (property_set("ctl.stop", kUniteHostapdServiceName) != 0) {
+      LOG(ERROR) << "Failed to stop SoftAP";
+      return false;
+    }
+  } else {
+    if (property_set("ctl.stop", kHostapdServiceName) != 0) {
+      LOG(ERROR) << "Failed to stop SoftAP";
+      return false;
+    }
   }
 
   LOG(DEBUG) << "SoftAP stopped successfully";
