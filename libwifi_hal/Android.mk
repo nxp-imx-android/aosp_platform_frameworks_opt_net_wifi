@@ -87,12 +87,14 @@ include $(BUILD_STATIC_LIBRARY)
 # ============================================================
 LIB_WIFI_HAL := libwifi-hal-fallback
 VENDOR_LOCAL_SHARED_LIBRARIES :=
-ifeq ($(BOARD_WLAN_DEVICE),  UNITE)
+ifeq ($(BOARD_WLAN_DEVICE), bcmdhd)
+ifeq ($(BOARD_WLAN_DEVICE_UNITE), UNITE)
   LIB_WIFI_HAL_BCM := libwifi-hal-bcm
   LIB_WIFI_HAL_QCOM := libwifi-hal-qcom
   VENDOR_LOCAL_SHARED_LIBRARIES := libcld80211
-else ifeq ($(BOARD_WLAN_DEVICE), bcmdhd)
+else 
   LIB_WIFI_HAL := libwifi-hal-bcm
+endif
 else ifeq ($(BOARD_WLAN_DEVICE), qcwcn)
   LIB_WIFI_HAL := libwifi-hal-qcom
   VENDOR_LOCAL_SHARED_LIBRARIES := libcld80211
@@ -145,9 +147,9 @@ LOCAL_EXPORT_C_INCLUDE_DIRS := \
     $(LOCAL_PATH)/testlib/include
 include $(BUILD_STATIC_LIBRARY)
 
-# The BCM WiFi HAL that you should be linking.
+# The UNITE  WiFi HAL that you should be linking.
 # ============================================================
-ifeq ($(BOARD_WLAN_DEVICE), UNITE)
+ifeq ($(BOARD_WLAN_DEVICE_UNITE), UNITE)
 include $(CLEAR_VARS)
 LOCAL_MODULE := libwifi-hal-unite-bcm
 LOCAL_PROPRIETARY_MODULE := true
