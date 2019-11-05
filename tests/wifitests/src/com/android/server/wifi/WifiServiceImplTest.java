@@ -85,6 +85,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.res.Resources;
+import android.net.NetworkStack;
 import android.net.Uri;
 import android.net.wifi.IDppCallback;
 import android.net.wifi.INetworkRequestMatchCallback;
@@ -1210,9 +1211,10 @@ public class WifiServiceImplTest {
      */
     @Test(expected = SecurityException.class)
     public void testStartSoftApWithoutPermissionThrowsException() throws Exception {
-        doThrow(new SecurityException()).when(mContext)
-                .enforceCallingOrSelfPermission(eq(android.Manifest.permission.NETWORK_STACK),
-                                                eq("WifiService"));
+        when(mContext.checkCallingOrSelfPermission(android.Manifest.permission.NETWORK_STACK))
+                .thenReturn(PackageManager.PERMISSION_DENIED);
+        doThrow(new SecurityException()).when(mContext).enforceCallingOrSelfPermission(
+                eq(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK), any());
         mWifiServiceImpl.startSoftAp(null);
     }
 
@@ -1245,9 +1247,10 @@ public class WifiServiceImplTest {
      */
     @Test(expected = SecurityException.class)
     public void testStopSoftApWithoutPermissionThrowsException() throws Exception {
-        doThrow(new SecurityException()).when(mContext)
-                .enforceCallingOrSelfPermission(eq(android.Manifest.permission.NETWORK_STACK),
-                                                eq("WifiService"));
+        when(mContext.checkCallingOrSelfPermission(android.Manifest.permission.NETWORK_STACK))
+                .thenReturn(PackageManager.PERMISSION_DENIED);
+        doThrow(new SecurityException()).when(mContext).enforceCallingOrSelfPermission(
+                eq(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK), any());
         mWifiServiceImpl.stopSoftAp();
     }
 
@@ -4270,5 +4273,18 @@ public class WifiServiceImplTest {
             mWifiServiceImpl.stopDppSession();
         } catch (RemoteException e) {
         }
+    }
+
+    /**
+     * Test to verify that the lock mode is verified before dispatching the operation
+     *
+     * Steps: call acquireWifiLock with an invalid lock mode.
+     * Expected: the call should throw an IllegalArgumentException.
+     */
+    @Test(expected = IllegalArgumentException.class)
+    public void acquireWifiLockShouldThrowExceptionOnInvalidLockMode() throws Exception {
+        final int wifiLockModeInvalid = -1;
+
+        mWifiServiceImpl.acquireWifiLock(mAppBinder, wifiLockModeInvalid, "", null);
     }
 }
