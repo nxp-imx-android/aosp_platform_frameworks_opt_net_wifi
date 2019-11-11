@@ -3430,6 +3430,25 @@ public class WifiServiceImplTest {
     }
 
     /**
+     * Verifies that entering airplane mode does not reset country code.
+     */
+    @Test
+    public void testEnterAirplaneModeNotResetCountryCode() {
+        mWifiServiceImpl.checkAndStartWifi();
+        verify(mContext).registerReceiver(mBroadcastReceiverCaptor.capture(),
+                (IntentFilter) argThat((IntentFilter filter) ->
+                        filter.hasAction(Intent.ACTION_AIRPLANE_MODE_CHANGED)));
+
+        when(mSettingsStore.isAirplaneModeOn()).thenReturn(true);
+
+        // Send the broadcast
+        Intent intent = new Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+        mBroadcastReceiverCaptor.getValue().onReceive(mContext, intent);
+
+        verifyNoMoreInteractions(mWifiCountryCode);
+    }
+
+    /**
      * Verify calls to notify users of a softap config change check the NETWORK_SETTINGS permission.
      */
     @Test
@@ -4251,5 +4270,18 @@ public class WifiServiceImplTest {
             mWifiServiceImpl.stopDppSession();
         } catch (RemoteException e) {
         }
+    }
+
+    /**
+     * Test to verify that the lock mode is verified before dispatching the operation
+     *
+     * Steps: call acquireWifiLock with an invalid lock mode.
+     * Expected: the call should throw an IllegalArgumentException.
+     */
+    @Test(expected = IllegalArgumentException.class)
+    public void acquireWifiLockShouldThrowExceptionOnInvalidLockMode() throws Exception {
+        final int wifiLockModeInvalid = -1;
+
+        mWifiServiceImpl.acquireWifiLock(mAppBinder, wifiLockModeInvalid, "", null);
     }
 }

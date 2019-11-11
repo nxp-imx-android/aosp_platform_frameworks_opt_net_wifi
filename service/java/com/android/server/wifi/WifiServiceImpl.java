@@ -528,10 +528,6 @@ public class WifiServiceImpl extends BaseWifiService {
                         if (mSettingsStore.handleAirplaneModeToggled()) {
                             mWifiController.sendMessage(CMD_AIRPLANE_TOGGLED);
                         }
-                        if (mSettingsStore.isAirplaneModeOn()) {
-                            Log.d(TAG, "resetting country code because Airplane mode is ON");
-                            mCountryCode.airplaneModeEnabled();
-                        }
                     }
                 },
                 new IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED));
@@ -2826,6 +2822,10 @@ public class WifiServiceImpl extends BaseWifiService {
         // If no UID is provided in worksource, use the calling UID
         WorkSource updatedWs = (ws == null || ws.isEmpty())
                 ? new WorkSource(Binder.getCallingUid()) : ws;
+
+        if (!WifiLockManager.isValidLockMode(lockMode)) {
+            throw new IllegalArgumentException("lockMode =" + lockMode);
+        }
 
         Mutable<Boolean> lockSuccess = new Mutable<>();
         boolean runWithScissorsSuccess = mWifiInjector.getClientModeImplHandler().runWithScissors(
