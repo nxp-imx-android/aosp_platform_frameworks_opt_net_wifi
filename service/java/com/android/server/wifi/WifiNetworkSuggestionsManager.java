@@ -820,11 +820,12 @@ public class WifiNetworkSuggestionsManager {
                 newConfig, uid, packageName);
         if (!result.isSuccess()) {
             Log.e(TAG, "Failed to update config in WifiConfigManager");
-        } else {
-            if (mVerboseLoggingEnabled) {
-                Log.v(TAG, "Updated config in WifiConfigManager");
-            }
+            return;
         }
+        if (mVerboseLoggingEnabled) {
+            Log.v(TAG, "Updated config in WifiConfigManager");
+        }
+        mWifiConfigManager.allowAutojoin(result.getNetworkId(), newConfig.allowAutojoin);
     }
 
     /**
@@ -1242,9 +1243,14 @@ public class WifiNetworkSuggestionsManager {
                     mWifiInjector.getPasspointManager()
                             .enableAutojoin(ewns.wns.passpointConfiguration.getUniqueId(),
                                     null, ewns.isAutojoinEnabled);
+                } else {
+                    // Update WifiConfigManager to sync auto-join.
+                    updateWifiConfigInWcmIfPresent(ewns.createInternalWifiConfiguration(),
+                            ewns.perAppInfo.uid, ewns.perAppInfo.packageName);
                 }
             }
         }
+        saveToStore();
     }
 
     /**
