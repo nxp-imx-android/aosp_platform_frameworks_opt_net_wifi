@@ -802,8 +802,13 @@ public class WifiServiceImpl extends BaseWifiService {
             Binder.restoreCallingIdentity(ident);
         }
         if (mWifiPermissionsUtil.checkNetworkSettingsPermission(Binder.getCallingUid())) {
-            mWifiMetrics.logUserActionEvent(enable ? UserActionEvent.EVENT_TOGGLE_WIFI_ON
-                    : UserActionEvent.EVENT_TOGGLE_WIFI_OFF);
+            if (enable) {
+                mWifiMetrics.logUserActionEvent(UserActionEvent.EVENT_TOGGLE_WIFI_ON);
+            } else {
+                WifiInfo wifiInfo = mClientModeImpl.syncRequestConnectionInfo();
+                mWifiMetrics.logUserActionEvent(UserActionEvent.EVENT_TOGGLE_WIFI_OFF,
+                        wifiInfo == null ? -1 : wifiInfo.getNetworkId());
+            }
         }
         mWifiMetrics.incrementNumWifiToggles(isPrivileged, enable);
         mActiveModeWarden.wifiToggled();
@@ -980,7 +985,8 @@ public class WifiServiceImpl extends BaseWifiService {
         // AP config.
         SoftApConfiguration softApConfig = apConfig.getSoftApConfiguration();
         if (softApConfig != null
-                && (!WifiApConfigStore.validateApWifiConfiguration(softApConfig, privileged)
+                && (!WifiApConfigStore.validateApWifiConfiguration(
+                    softApConfig, privileged, mContext)
                     || !validateSoftApBand(softApConfig.getBand()))) {
             Log.e(TAG, "Invalid SoftApConfiguration");
             return false;
@@ -1914,7 +1920,7 @@ public class WifiServiceImpl extends BaseWifiService {
         SoftApConfiguration softApConfig = ApConfigUtil.fromWifiConfiguration(wifiConfig);
         if (softApConfig == null) return false;
         if (WifiApConfigStore.validateApWifiConfiguration(
-                softApConfig, false)) {
+                softApConfig, false, mContext)) {
             mWifiThreadRunner.post(() -> mWifiApConfigStore.setApConfiguration(softApConfig));
             return true;
         } else {
@@ -1937,7 +1943,7 @@ public class WifiServiceImpl extends BaseWifiService {
         boolean privileged = mWifiPermissionsUtil.checkNetworkSettingsPermission(uid);
         mLog.info("setSoftApConfiguration uid=%").c(uid).flush();
         if (softApConfig == null) return false;
-        if (WifiApConfigStore.validateApWifiConfiguration(softApConfig, privileged)) {
+        if (WifiApConfigStore.validateApWifiConfiguration(softApConfig, privileged, mContext)) {
             mActiveModeWarden.updateSoftApConfiguration(softApConfig);
             mWifiThreadRunner.post(() -> mWifiApConfigStore.setApConfiguration(softApConfig));
             return true;
@@ -2541,7 +2547,7 @@ public class WifiServiceImpl extends BaseWifiService {
         enforceNetworkSettingsPermission();
 
         int callingUid = Binder.getCallingUid();
-        mLog.info("allowAutojoin=% uid=%").c(choice).c(callingUid).flush();
+        mLog.info("allowAutojoinGlobal=% uid=%").c(choice).c(callingUid).flush();
 
         mWifiThreadRunner.post(() -> mClientModeImpl.allowAutoJoinGlobal(choice));
     }
@@ -4118,10 +4124,15 @@ public class WifiServiceImpl extends BaseWifiService {
             throw new SecurityException(TAG + ": Permission denied");
         }
         mLog.info("connect uid=%").c(uid).flush();
-        mClientModeImpl.connect(config, netId, binder, callback, callbackIdentifier, uid);
         if (mWifiPermissionsUtil.checkNetworkSettingsPermission(uid)) {
-            mWifiMetrics.logUserActionEvent(UserActionEvent.EVENT_MANUAL_CONNECT, netId);
+            if (config == null) {
+                mWifiMetrics.logUserActionEvent(UserActionEvent.EVENT_MANUAL_CONNECT, netId);
+            } else {
+                mWifiMetrics.logUserActionEvent(
+                        UserActionEvent.EVENT_ADD_OR_UPDATE_NETWORK, config.networkId);
+            }
         }
+        mClientModeImpl.connect(config, netId, binder, callback, callbackIdentifier, uid);
     }
 
     /**
@@ -4135,6 +4146,10 @@ public class WifiServiceImpl extends BaseWifiService {
             throw new SecurityException(TAG + ": Permission denied");
         }
         mLog.info("save uid=%").c(Binder.getCallingUid()).flush();
+        if (mWifiPermissionsUtil.checkNetworkSettingsPermission(Binder.getCallingUid())) {
+            mWifiMetrics.logUserActionEvent(
+                    UserActionEvent.EVENT_ADD_OR_UPDATE_NETWORK, config.networkId);
+        }
         mClientModeImpl.save(
                 config, binder, callback, callbackIdentifier, Binder.getCallingUid());
     }

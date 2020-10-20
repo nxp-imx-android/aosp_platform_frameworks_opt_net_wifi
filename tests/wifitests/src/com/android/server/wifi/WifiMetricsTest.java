@@ -60,6 +60,7 @@ import android.net.wifi.SoftApCapability;
 import android.net.wifi.SoftApConfiguration;
 import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiConfiguration.NetworkSelectionStatus;
 import android.net.wifi.WifiEnterpriseConfig;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -98,6 +99,7 @@ import com.android.server.wifi.proto.nano.WifiMetricsProto.Int32Count;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.LinkProbeStats;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.LinkProbeStats.ExperimentProbeCounts;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.LinkProbeStats.LinkProbeFailureReasonCount;
+import com.android.server.wifi.proto.nano.WifiMetricsProto.NetworkDisableReason;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.NetworkSelectionExperimentDecisions;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.PasspointProfileTypeCount;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.PasspointProvisionStats;
@@ -129,9 +131,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -586,9 +590,9 @@ public class WifiMetricsTest extends WifiBaseTest {
         mockScanDetails.add(buildMockScanDetail(false, null, "[WAPI-WAPI-CERT-SMS4-SMS4]", 0));
         // Number of scans of R2 networks must be equal to NUM_HOTSPOT2_R2_NETWORK_SCAN_RESULTS
         mockScanDetails.add(buildMockScanDetail(false, NetworkDetail.HSRelease.R2,
-                "[WPA-EAP-CCMP+FILS-SHA256-CCMP]", FEATURE_MBO | FEATURE_OCE));
+                "[WPA-EAP-CCMP+EAP-FILS-SHA256-CCMP]", FEATURE_MBO | FEATURE_OCE));
         mockScanDetails.add(buildMockScanDetail(false, NetworkDetail.HSRelease.R2,
-                "[WPA2-EAP+FT/EAP-CCMP+FILS-SHA256-CCMP]", 0));
+                "[WPA2-EAP+FT/EAP-CCMP+EAP-FILS-SHA256-CCMP]", 0));
         // Number of scans of R1 networks must be equal to NUM_HOTSPOT2_R1_NETWORK_SCAN_RESULTS
         mockScanDetails.add(buildMockScanDetail(false, NetworkDetail.HSRelease.R1,
                 "[WPA-EAP-CCMP]", 0));
@@ -1727,7 +1731,8 @@ public class WifiMetricsTest extends WifiBaseTest {
         config.allowedKeyManagement = new BitSet();
         when(config.getNetworkSelectionStatus()).thenReturn(
                 mock(WifiConfiguration.NetworkSelectionStatus.class));
-        when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(eq(config.SSID))).thenReturn(3);
+        when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(eq(config.SSID)))
+                .thenReturn(3);
         mWifiMetrics.startConnectionEvent(config, "RED",
                 WifiMetricsProto.ConnectionEvent.ROAM_NONE);
         mWifiMetrics.endConnectionEvent(
@@ -2400,9 +2405,8 @@ public class WifiMetricsTest extends WifiBaseTest {
         int testNetworkId = 0;
         long testStartTimeMillis = 123123L;
         when(mClock.getElapsedSinceBootMillis()).thenReturn(testStartTimeMillis);
-        WifiConfiguration config = mock(WifiConfiguration.class);
-        when(config.isEphemeral()).thenReturn(true);
-        when(config.isPasspoint()).thenReturn(true);
+        WifiConfiguration config = WifiConfigurationTestUtil.createPasspointNetwork();
+        config.ephemeral = true;
         when(mWcm.getConfiguredNetwork(testNetworkId)).thenReturn(config);
 
         mWifiMetrics.logUserActionEvent(testEventType, testNetworkId);
@@ -2415,6 +2419,118 @@ public class WifiMetricsTest extends WifiBaseTest {
         assertEquals(testStartTimeMillis, userActionEvents[0].startTimeMillis);
         assertEquals(true, userActionEvents[0].targetNetworkInfo.isEphemeral);
         assertEquals(true, userActionEvents[0].targetNetworkInfo.isPasspoint);
+
+        // Verify that there are no disabled WifiConfiguration and BSSIDs
+        NetworkDisableReason networkDisableReason = userActionEvents[0].networkDisableReason;
+        assertEquals(NetworkDisableReason.REASON_UNKNOWN, networkDisableReason.disableReason);
+        assertEquals(false, networkDisableReason.configTemporarilyDisabled);
+        assertEquals(false, networkDisableReason.configPermanentlyDisabled);
+        assertEquals(0, networkDisableReason.bssidDisableReasons.length);
+    }
+
+    /**
+     * Verify the WifiStatus field in a UserActionEvent is populated correctly.
+     * @throws Exception
+     */
+    @Test
+    public void testLogWifiStatusInUserActionEvent() throws Exception {
+        // setups WifiStatus for information
+        int expectedRssi = -55;
+        int testNetworkId = 1;
+        int expectedTx = 1234;
+        int expectedRx = 2345;
+
+        WifiInfo wifiInfo = mock(WifiInfo.class);
+        when(wifiInfo.getRssi()).thenReturn(expectedRssi);
+        when(wifiInfo.getNetworkId()).thenReturn(testNetworkId);
+        mWifiMetrics.handlePollResult(wifiInfo);
+        mWifiMetrics.incrementThroughputKbpsCount(expectedTx, expectedRx, RSSI_POLL_FREQUENCY);
+        mWifiMetrics.setNominatorForNetwork(testNetworkId,
+                WifiMetricsProto.ConnectionEvent.NOMINATOR_SAVED_USER_CONNECT_CHOICE);
+
+        // generate a user action event and then verify fields
+        int testEventType = WifiMetricsProto.UserActionEvent.EVENT_FORGET_WIFI;
+        mWifiMetrics.logUserActionEvent(testEventType, testNetworkId);
+        dumpProtoAndDeserialize();
+
+        WifiMetricsProto.UserActionEvent[] userActionEvents = mDecodedProto.userActionEvents;
+        assertEquals(1, userActionEvents.length);
+        assertEquals(WifiMetricsProto.UserActionEvent.EVENT_FORGET_WIFI,
+                userActionEvents[0].eventType);
+        assertEquals(expectedRssi, userActionEvents[0].wifiStatus.lastRssi);
+        assertEquals(expectedTx, userActionEvents[0].wifiStatus.estimatedTxKbps);
+        assertEquals(expectedRx, userActionEvents[0].wifiStatus.estimatedRxKbps);
+        assertTrue(userActionEvents[0].wifiStatus.isStuckDueToUserConnectChoice);
+    }
+
+    /**
+     * verify NetworkDisableReason is populated properly when there exists a disabled
+     * WifiConfiguration and BSSID.
+     */
+    @Test
+    public void testNetworkDisableReasonInUserActionEvent() throws Exception {
+        // Setup a temporarily blocked config due to DISABLED_ASSOCIATION_REJECTION
+        WifiConfiguration testConfig = WifiConfigurationTestUtil.createOpenNetwork();
+        NetworkSelectionStatus status = testConfig.getNetworkSelectionStatus();
+        status.setNetworkSelectionStatus(
+                NetworkSelectionStatus.NETWORK_SELECTION_TEMPORARY_DISABLED);
+        status.setNetworkSelectionDisableReason(
+                NetworkSelectionStatus.DISABLED_ASSOCIATION_REJECTION);
+        when(mWcm.getConfiguredNetwork(TEST_NETWORK_ID)).thenReturn(testConfig);
+
+        // Also setup the same BSSID level failure
+        Set<Integer> testBssidBlocklistReasons = new HashSet<>();
+        testBssidBlocklistReasons.add(BssidBlocklistMonitor.REASON_ASSOCIATION_REJECTION);
+        when(mBssidBlocklistMonitor.getFailureReasonsForSsid(anyString()))
+                .thenReturn(testBssidBlocklistReasons);
+
+        // Logging the user action event
+        mWifiMetrics.logUserActionEvent(WifiMetricsProto.UserActionEvent.EVENT_FORGET_WIFI,
+                TEST_NETWORK_ID);
+        dumpProtoAndDeserialize();
+
+        WifiMetricsProto.UserActionEvent[] userActionEvents = mDecodedProto.userActionEvents;
+        assertEquals(1, userActionEvents.length);
+        assertEquals(WifiMetricsProto.UserActionEvent.EVENT_FORGET_WIFI,
+                userActionEvents[0].eventType);
+        NetworkDisableReason networkDisableReason = userActionEvents[0].networkDisableReason;
+        assertEquals(NetworkDisableReason.REASON_ASSOCIATION_REJECTION,
+                networkDisableReason.disableReason);
+        assertEquals(true, networkDisableReason.configTemporarilyDisabled);
+        assertEquals(false, networkDisableReason.configPermanentlyDisabled);
+        assertEquals(1, networkDisableReason.bssidDisableReasons.length);
+        assertEquals(NetworkDisableReason.REASON_ASSOCIATION_REJECTION,
+                networkDisableReason.bssidDisableReasons[0]);
+    }
+
+    /**
+     * verify that auto-join disable overrides any other disable reasons in NetworkDisableReason.
+     */
+    @Test
+    public void testNetworkDisableReasonDisableAutojoinInUserActionEvent() throws Exception {
+        // Setup a temporarily blocked config due to DISABLED_ASSOCIATION_REJECTION
+        WifiConfiguration testConfig = WifiConfigurationTestUtil.createOpenNetwork();
+        NetworkSelectionStatus status = testConfig.getNetworkSelectionStatus();
+        status.setNetworkSelectionStatus(
+                NetworkSelectionStatus.NETWORK_SELECTION_TEMPORARY_DISABLED);
+        status.setNetworkSelectionDisableReason(
+                NetworkSelectionStatus.DISABLED_ASSOCIATION_REJECTION);
+        when(mWcm.getConfiguredNetwork(TEST_NETWORK_ID)).thenReturn(testConfig);
+
+        // Disable autojoin
+        testConfig.allowAutojoin = false;
+
+        // Logging the user action event
+        mWifiMetrics.logUserActionEvent(WifiMetricsProto.UserActionEvent.EVENT_FORGET_WIFI,
+                TEST_NETWORK_ID);
+        dumpProtoAndDeserialize();
+
+        WifiMetricsProto.UserActionEvent[] userActionEvents = mDecodedProto.userActionEvents;
+        NetworkDisableReason networkDisableReason = userActionEvents[0].networkDisableReason;
+        assertEquals(NetworkDisableReason.REASON_AUTO_JOIN_DISABLED,
+                networkDisableReason.disableReason);
+        assertEquals(false, networkDisableReason.configTemporarilyDisabled);
+        assertEquals(true, networkDisableReason.configPermanentlyDisabled);
     }
 
     /**
@@ -4763,6 +4879,9 @@ public class WifiMetricsTest extends WifiBaseTest {
     @Test
     public void testConnectionDurationStats() throws Exception {
         for (int i = 0; i < 2; i++) {
+            mWifiMetrics.incrementWifiScoreCount(52);
+            mWifiMetrics.incrementConnectionDuration(5000, false, true);
+            mWifiMetrics.incrementWifiScoreCount(40);
             mWifiMetrics.incrementConnectionDuration(5000, false, true);
             mWifiMetrics.incrementConnectionDuration(3000, true, true);
             mWifiMetrics.incrementConnectionDuration(1000, false, false);
@@ -4772,8 +4891,10 @@ public class WifiMetricsTest extends WifiBaseTest {
 
         assertEquals(6000,
                 mDecodedProto.connectionDurationStats.totalTimeSufficientThroughputMs);
-        assertEquals(10000,
+        assertEquals(20000,
                 mDecodedProto.connectionDurationStats.totalTimeInsufficientThroughputMs);
+        assertEquals(10000,
+                mDecodedProto.connectionDurationStats.totalTimeInsufficientThroughputDefaultWifiMs);
         assertEquals(3000,
                 mDecodedProto.connectionDurationStats.totalTimeCellularDataOffMs);
     }

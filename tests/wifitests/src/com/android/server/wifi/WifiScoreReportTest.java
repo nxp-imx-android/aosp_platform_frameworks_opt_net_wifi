@@ -20,16 +20,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.AdditionalAnswers.answerVoid;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -782,7 +781,7 @@ public class WifiScoreReportTest extends WifiBaseTest {
     }
 
     /**
-     * Verify BSSID blocklist doesnot happen when score stays below threshold for less than the
+     * Verify BSSID blocklist does not happen when score stays below threshold for less than the
      * minimum duration
      */
     @Test
@@ -802,7 +801,8 @@ public class WifiScoreReportTest extends WifiBaseTest {
         mLooper.dispatchAll();
         mWifiScoreReport.stopConnectedNetworkScorer();
         mLooper.dispatchAll();
-        verify(mBssidBlocklistMonitor, never()).blockBssidForDurationMs(any(), any(), anyLong());
+        verify(mBssidBlocklistMonitor, never()).handleBssidConnectionFailure(any(), any(),
+                anyInt(), anyInt());
     }
 
     /**
@@ -826,11 +826,12 @@ public class WifiScoreReportTest extends WifiBaseTest {
         mLooper.dispatchAll();
         mWifiScoreReport.stopConnectedNetworkScorer();
         mLooper.dispatchAll();
-        verify(mBssidBlocklistMonitor).blockBssidForDurationMs(any(), any(), anyLong());
+        verify(mBssidBlocklistMonitor).handleBssidConnectionFailure(any(), any(),
+                eq(BssidBlocklistMonitor.REASON_FRAMEWORK_DISCONNECT_CONNECTED_SCORE), anyInt());
     }
 
     /**
-     * Verify BSSID blocklist doesnot happen when there is score flip flop
+     * Verify BSSID blocklist does not happen when there is score flip flop
      */
     @Test
     public void bssidBlockListDoesnotHappenWhenExitingIsReset() throws Exception {
@@ -852,7 +853,19 @@ public class WifiScoreReportTest extends WifiBaseTest {
         mLooper.dispatchAll();
         mWifiScoreReport.stopConnectedNetworkScorer();
         mLooper.dispatchAll();
-        verify(mBssidBlocklistMonitor, never()).blockBssidForDurationMs(any(), any(), anyLong());
+        verify(mBssidBlocklistMonitor, never()).handleBssidConnectionFailure(any(), any(),
+                anyInt(), anyInt());
+    }
+
+    /**
+     * Verify that the initial score value in WifiInfo is the max when onStart is called.
+     */
+    @Test
+    public void testOnStartInitialScoreInWifiInfoIsMaxScore() throws Exception {
+        when(mNetwork.getNetId()).thenReturn(TEST_NETWORK_ID);
+        mWifiScoreReport.startConnectedNetworkScorer(TEST_NETWORK_ID);
+        mWifiScoreReport.setWifiConnectedNetworkScorer(mAppBinder, mWifiConnectedNetworkScorer);
+        assertEquals(ConnectedScore.WIFI_MAX_SCORE, mWifiInfo.getScore());
     }
 
     /**

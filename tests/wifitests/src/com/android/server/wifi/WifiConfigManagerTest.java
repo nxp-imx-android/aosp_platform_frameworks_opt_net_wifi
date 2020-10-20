@@ -179,6 +179,20 @@ public class WifiConfigManagerTest extends WifiBaseTest {
                 TEST_MAX_NUM_ACTIVE_CHANNELS_FOR_PARTIAL_SCAN);
         mResources.setBoolean(R.bool.config_wifi_connected_mac_randomization_supported, true);
         mResources.setInteger(R.integer.config_wifiMaxPnoSsidCount, 16);
+        mResources.setInteger(
+                R.integer.config_wifiDisableReasonAssociationRejectionThreshold,
+                NetworkSelectionStatus.DISABLE_REASON_INFOS
+                        .get(NetworkSelectionStatus.DISABLED_ASSOCIATION_REJECTION)
+                        .mDisableThreshold);
+        mResources.setInteger(
+                R.integer.config_wifiDisableReasonAuthenticationFailureThreshold,
+                NetworkSelectionStatus.DISABLE_REASON_INFOS
+                        .get(NetworkSelectionStatus.DISABLED_AUTHENTICATION_FAILURE)
+                        .mDisableThreshold);
+        mResources.setInteger(
+                R.integer.config_wifiDisableReasonDhcpFailureThreshold,
+                NetworkSelectionStatus.DISABLE_REASON_INFOS
+                        .get(NetworkSelectionStatus.DISABLED_DHCP_FAILURE).mDisableThreshold);
         when(mContext.getResources()).thenReturn(mResources);
 
         // Setup UserManager profiles for the default user.
@@ -621,7 +635,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
                 return (int) mBssidStatusMap.entrySet().stream()
                         .filter(e -> e.getValue().equals(ssid)).count();
             }
-        }).when(mBssidBlocklistMonitor).getNumBlockedBssidsForSsid(
+        }).when(mBssidBlocklistMonitor).updateAndGetNumBlockedBssidsForSsid(
                 anyString());
         // add bssid to the blocklist
         mBssidStatusMap.put(TEST_BSSID, openNetwork.SSID);
@@ -649,7 +663,8 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         assertTrue(oldConfig.trusted);
         assertNull(oldConfig.BSSID);
 
-        assertEquals(0, mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(openNetwork.SSID));
+        assertEquals(0, mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(
+                openNetwork.SSID));
     }
 
     /**
@@ -1218,6 +1233,40 @@ public class WifiConfigManagerTest extends WifiBaseTest {
     }
 
     /**
+     * Verify that the parameters in DISABLE_REASON_INFOS are overlayable.
+     */
+    @Test
+    public void testNetworkSelectionDisableReasonCustomConfigOverride() {
+        int oldThreshold = NetworkSelectionStatus.DISABLE_REASON_INFOS
+                .get(NetworkSelectionStatus.DISABLED_DHCP_FAILURE).mDisableThreshold;
+
+        // Modify the overlay value and create WifiConfigManager again.
+        int newThreshold = oldThreshold + 1;
+        mResources.setInteger(
+                R.integer.config_wifiDisableReasonDhcpFailureThreshold, newThreshold);
+        createWifiConfigManager();
+
+        // Verify that the threshold is updated in the copied version
+        assertEquals(newThreshold, mWifiConfigManager.getNetworkSelectionDisableThreshold(
+                NetworkSelectionStatus.DISABLED_DHCP_FAILURE));
+        // Verify the original DISABLE_REASON_INFOS is unchanged
+        assertEquals(oldThreshold, NetworkSelectionStatus.DISABLE_REASON_INFOS
+                .get(NetworkSelectionStatus.DISABLED_DHCP_FAILURE).mDisableThreshold);
+    }
+
+    /**
+     * Verify the correctness of the copied DISABLE_REASON_INFOS.
+     */
+    @Test
+    public void testNetworkSelectionDisableReasonClone() {
+        for (int i = 1; i < NetworkSelectionStatus.NETWORK_SELECTION_DISABLED_MAX; i++) {
+            assertEquals("Disable threshold for reason=" + i + " should be equal",
+                    NetworkSelectionStatus.DISABLE_REASON_INFOS.get(i).mDisableThreshold,
+                    mWifiConfigManager.getNetworkSelectionDisableThreshold(i));
+        }
+    }
+
+    /**
      * Verifies the update of network status using
      * {@link WifiConfigManager#updateNetworkSelectionStatus(int, int)}.
      */
@@ -1238,7 +1287,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         // disable it 5 times to actually mark it temporarily disabled.
         int assocRejectReason = NetworkSelectionStatus.DISABLED_ASSOCIATION_REJECTION;
         int assocRejectThreshold =
-                WifiConfigManager.getNetworkSelectionDisableThreshold(assocRejectReason);
+                mWifiConfigManager.getNetworkSelectionDisableThreshold(assocRejectReason);
         for (int i = 1; i <= assocRejectThreshold; i++) {
             verifyUpdateNetworkSelectionStatus(result.getNetworkId(), assocRejectReason, i);
         }
@@ -1334,7 +1383,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
                 result.getNetworkId(), NetworkSelectionStatus.DISABLED_NONE, 0);
 
         int disableThreshold =
-                WifiConfigManager.getNetworkSelectionDisableThreshold(reason);
+                mWifiConfigManager.getNetworkSelectionDisableThreshold(reason);
         for (int i = 1; i <= disableThreshold; i++) {
             verifyUpdateNetworkSelectionStatus(result.getNetworkId(), reason, i);
         }
@@ -1375,9 +1424,9 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         for (int i = 1; i < MAX_BLOCKED_BSSID_PER_NETWORK + 1; i++) {
             verifyDisableNetwork(result, disableReason);
             int numBssidsInBlocklist = i;
-            when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString()))
+            when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString()))
                     .thenReturn(numBssidsInBlocklist);
-            timeout = WifiConfigManager.getNetworkSelectionDisableTimeoutMillis(disableReason)
+            timeout = mWifiConfigManager.getNetworkSelectionDisableTimeoutMillis(disableReason)
                     * multiplier;
             multiplier *= 2;
             verifyNetworkIsEnabledAfter(result.getNetworkId(),
@@ -1386,7 +1435,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         // Verify one last time that the disable duration is capped at some maximum.
         verifyDisableNetwork(result, disableReason);
-        when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString()))
+        when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString()))
                 .thenReturn(MAX_BLOCKED_BSSID_PER_NETWORK + 1);
         verifyNetworkIsEnabledAfter(result.getNetworkId(),
                 TEST_ELAPSED_UPDATE_NETWORK_SELECTION_TIME_MILLIS + timeout);
@@ -1404,7 +1453,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         // Verify that with 0 BSSIDs in blocklist we enable the network immediately
         verifyDisableNetwork(result, disableReason);
-        when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString())).thenReturn(0);
+        when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString())).thenReturn(0);
         when(mClock.getElapsedSinceBootMillis())
                 .thenReturn(TEST_ELAPSED_UPDATE_NETWORK_SELECTION_TIME_MILLIS);
         assertTrue(mWifiConfigManager.tryEnableNetwork(result.getNetworkId()));
@@ -2915,12 +2964,73 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         Set<Integer> removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
         verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
         assertTrue((removedNetworks.size() == 1) && (removedNetworks.contains(user1NetworkId)));
+        verify(mWcmListener).onNetworkRemoved(any());
 
         // Set the expected networks to be |sharedNetwork| and |user2Network|.
         List<WifiConfiguration> expectedNetworks = new ArrayList<WifiConfiguration>() {
             {
                 add(sharedNetwork);
                 add(user2Network);
+            }
+        };
+        WifiConfigurationTestUtil.assertConfigurationsEqualForConfigManagerAddOrUpdate(
+                expectedNetworks, mWifiConfigManager.getConfiguredNetworksWithPasswords());
+
+        // Send another user switch  indication with the same user 2. This should be ignored and
+        // hence should not remove any new networks.
+        when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
+        assertTrue(removedNetworks.isEmpty());
+    }
+
+    @Test
+    public void testHandleUserSwitchRemovesOldUserEphemeralNetworks() throws Exception {
+        int user1 = TEST_DEFAULT_USER;
+        int user2 = TEST_DEFAULT_USER + 1;
+        setupUserProfiles(user2);
+
+        int appId = 674;
+
+        // Create 2 networks. 1 ephemeral network for user1 and 1 shared.
+        final WifiConfiguration sharedNetwork = WifiConfigurationTestUtil.createPskNetwork();
+
+        // Set up the store data that is loaded initially.
+        List<WifiConfiguration> sharedNetworks = new ArrayList<WifiConfiguration>() {
+            {
+                add(sharedNetwork);
+            }
+        };
+        setupStoreDataForRead(sharedNetworks, Collections.EMPTY_LIST);
+        assertTrue(mWifiConfigManager.loadFromStore());
+        verify(mWifiConfigStore).read();
+
+        WifiConfiguration ephemeralNetwork = WifiConfigurationTestUtil.createEphemeralNetwork();
+        verifyAddEphemeralNetworkToWifiConfigManager(ephemeralNetwork);
+
+        // Fetch the network ID assigned to the user 1 network initially.
+        int ephemeralNetworkId = WifiConfiguration.INVALID_NETWORK_ID;
+        List<WifiConfiguration> retrievedNetworks =
+                mWifiConfigManager.getConfiguredNetworksWithPasswords();
+        for (WifiConfiguration network : retrievedNetworks) {
+            if (network.getKey().equals(ephemeralNetwork.getKey())) {
+                ephemeralNetworkId = network.networkId;
+            }
+        }
+
+        // Now switch the user to user 2 and ensure that user 1's private network has been removed.
+        when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        Set<Integer> removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
+        verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
+        assertTrue((removedNetworks.size() == 1));
+        assertTrue(removedNetworks.contains(ephemeralNetworkId));
+        verifyNetworkRemoveBroadcast();
+        verify(mWcmListener).onNetworkRemoved(any());
+
+
+        // Set the expected networks to be |sharedNetwork|.
+        List<WifiConfiguration> expectedNetworks = new ArrayList<WifiConfiguration>() {
+            {
+                add(sharedNetwork);
             }
         };
         WifiConfigurationTestUtil.assertConfigurationsEqualForConfigManagerAddOrUpdate(
@@ -5244,7 +5354,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         long retrievedDisableTime = retrievedStatus.getDisableTime();
         int retrievedDisableReasonCounter = retrievedStatus.getDisableReasonCounter(reason);
         int disableReasonThreshold =
-                WifiConfigManager.getNetworkSelectionDisableThreshold(reason);
+                mWifiConfigManager.getNetworkSelectionDisableThreshold(reason);
 
         if (reason == NetworkSelectionStatus.DISABLED_NONE) {
             assertEquals(reason, retrievedDisableReason);
@@ -5420,7 +5530,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         int assocRejectReason = NetworkSelectionStatus.DISABLED_ASSOCIATION_REJECTION;
         int assocRejectThreshold =
-                WifiConfigManager.getNetworkSelectionDisableThreshold(assocRejectReason);
+                mWifiConfigManager.getNetworkSelectionDisableThreshold(assocRejectReason);
         for (int i = 1; i <= assocRejectThreshold; i++) {
             assertFalse(mWifiConfigManager.updateNetworkSelectionStatus(
                         networkId, assocRejectReason));
