@@ -20,7 +20,6 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 import android.net.IpConfiguration;
-import android.net.util.MacAddressUtils;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiConfiguration.NetworkSelectionStatus;
 import android.net.wifi.WifiEnterpriseConfig;
@@ -30,6 +29,7 @@ import android.util.Xml;
 import androidx.test.filters.SmallTest;
 
 import com.android.internal.util.FastXmlSerializer;
+import com.android.net.module.util.MacAddressUtils;
 import com.android.server.wifi.WifiBaseTest;
 import com.android.server.wifi.WifiConfigurationTestUtil;
 import com.android.server.wifi.util.XmlUtil.IpConfigurationXmlUtil;
@@ -401,6 +401,9 @@ public class XmlUtilTest extends WifiBaseTest {
         config.setFieldValue(WifiEnterpriseConfig.CA_PATH_KEY, TEST_CA_PATH);
         config.setEapMethod(TEST_EAP_METHOD);
         config.setPhase2Method(TEST_PHASE2_METHOD);
+        config.initIsAppInstalledDeviceKeyAndCert(true);
+        config.initIsAppInstalledCaCert(true);
+
         serializeDeserializeWifiEnterpriseConfig(config);
     }
 
@@ -425,6 +428,8 @@ public class XmlUtilTest extends WifiBaseTest {
         config.setFieldValue(WifiEnterpriseConfig.CA_PATH_KEY, TEST_CA_PATH);
         config.setEapMethod(TEST_EAP_METHOD);
         config.setPhase2Method(TEST_PHASE2_METHOD);
+        config.initIsAppInstalledDeviceKeyAndCert(true);
+        config.initIsAppInstalledCaCert(true);
 
         mWifiConfigStoreEncryptionUtil = mock(WifiConfigStoreEncryptionUtil.class);
         EncryptedData encryptedData = new EncryptedData(new byte[0], new byte[0]);
@@ -459,6 +464,8 @@ public class XmlUtilTest extends WifiBaseTest {
         config.setFieldValue(WifiEnterpriseConfig.CA_PATH_KEY, TEST_CA_PATH);
         config.setEapMethod(TEST_EAP_METHOD);
         config.setPhase2Method(TEST_PHASE2_METHOD);
+        config.initIsAppInstalledDeviceKeyAndCert(true);
+        config.initIsAppInstalledCaCert(true);
         String xmlString = new String(serializeWifiEnterpriseConfig(config));
         // Manipulate the XML data to set the EAP method to None, this should raise an Illegal
         // argument exception in WifiEnterpriseConfig.setEapMethod().

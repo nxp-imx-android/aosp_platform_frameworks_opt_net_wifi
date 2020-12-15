@@ -65,8 +65,6 @@ import android.net.ip.IpClientManager;
 import android.net.shared.Layer2Information;
 import android.net.shared.ProvisioningConfiguration;
 import android.net.shared.ProvisioningConfiguration.ScanResultInfo;
-import android.net.util.MacAddressUtils;
-import android.net.util.NetUtils;
 import android.net.wifi.IActionListener;
 import android.net.wifi.INetworkRequestMatchCallback;
 import android.net.wifi.ScanResult;
@@ -113,6 +111,8 @@ import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
 import com.android.net.module.util.Inet4AddressUtils;
+import com.android.net.module.util.MacAddressUtils;
+import com.android.net.module.util.NetUtils;
 import com.android.server.wifi.MboOceController.BtmFrameData;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthRequestData;
 import com.android.server.wifi.WifiCarrierInfoManager.SimAuthResponseData;
@@ -2711,9 +2711,9 @@ public class ClientModeImpl extends StateMachine {
         if (mIpClient != null) {
             Pair<String, String> p = mWifiScoreCard.getL2KeyAndGroupHint(mWifiInfo);
             if (!p.equals(mLastL2KeyAndGroupHint)) {
-                final MacAddress lastBssid = getCurrentBssid();
+                final MacAddress currentBssid = getMacAddressFromBssidString(mWifiInfo.getBSSID());
                 final Layer2Information l2Information = new Layer2Information(
-                        p.first, p.second, lastBssid);
+                        p.first, p.second, currentBssid);
                 // Update current BSSID on IpClient side whenever l2Key and groupHint
                 // pair changes (i.e. the initial connection establishment or L2 roaming
                 // happened). If we have COMPLETED the roaming to a different BSSID, start
@@ -3292,8 +3292,7 @@ public class ClientModeImpl extends StateMachine {
             return;
         }
         String currentMacString = mWifiNative.getMacAddress(mInterfaceName);
-        MacAddress currentMac = currentMacString == null ? null :
-                MacAddress.fromString(currentMacString);
+        MacAddress currentMac = getMacAddressFromBssidString(currentMacString);
         MacAddress newMac = mWifiConfigManager.getRandomizedMacAndUpdateIfNeeded(config);
         if (!WifiConfiguration.isValidMacAddressForRandomization(newMac)) {
             Log.wtf(TAG, "Config generated an invalid MAC address");
@@ -3747,14 +3746,17 @@ public class ClientModeImpl extends StateMachine {
         return mLastBssid;
     }
 
-    MacAddress getCurrentBssid() {
-        MacAddress bssid = null;
+    private MacAddress getMacAddressFromBssidString(@Nullable String bssidStr) {
         try {
-            bssid = (mLastBssid != null) ? MacAddress.fromString(mLastBssid) : null;
+            return (bssidStr != null) ? MacAddress.fromString(bssidStr) : null;
         } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Invalid BSSID format: " + mLastBssid);
+            Log.e(TAG, "Invalid BSSID format: " + bssidStr);
+            return null;
         }
-        return bssid;
+    }
+
+    private MacAddress getCurrentBssid() {
+        return getMacAddressFromBssidString(mLastBssid);
     }
 
     void connectToNetwork(WifiConfiguration config) {
@@ -4780,6 +4782,9 @@ public class ClientModeImpl extends StateMachine {
             mWifiScoreCard.noteNetworkAgentCreated(mWifiInfo,
                     mNetworkAgent.getNetwork().getNetId());
             mBssidBlocklistMonitor.handleBssidConnectionSuccess(mLastBssid, mWifiInfo.getSSID());
+            // too many places to record connection failure with too many failure reasons.
+            // So only record success here.
+            mWifiMetrics.noteFirstL2ConnectionAfterBoot(true);
         }
 
         @Override
@@ -5379,6 +5384,9 @@ public class ClientModeImpl extends StateMachine {
             wifiLockManager.updateWifiClientConnected(true);
             mWifiScoreReport.startConnectedNetworkScorer(mNetworkAgent.getNetwork().getNetId());
             updateLinkLayerStatsRssiAndScoreReport();
+            // too many places to record L3 failure with too many failure reasons.
+            // So only record success here.
+            mWifiMetrics.noteFirstL3ConnectionAfterBoot(true);
         }
         @Override
         public boolean processMessage(Message message) {

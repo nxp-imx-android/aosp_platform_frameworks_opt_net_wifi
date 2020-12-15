@@ -73,6 +73,7 @@ public class ActiveModeWarden {
     private final ScanRequestProxy mScanRequestProxy;
     private final WifiNative mWifiNative;
     private final WifiController mWifiController;
+    private final WifiMetrics mWifiMetrics;
 
     private WifiManager.SoftApCallback mSoftApCallback;
     private WifiManager.SoftApCallback mLohsCallback;
@@ -106,7 +107,8 @@ public class ActiveModeWarden {
                      ClientModeImpl clientModeImpl,
                      WifiSettingsStore settingsStore,
                      FrameworkFacade facade,
-                     WifiPermissionsUtil wifiPermissionsUtil) {
+                     WifiPermissionsUtil wifiPermissionsUtil,
+                     WifiMetrics wifiMetrics) {
         mWifiInjector = wifiInjector;
         mLooper = looper;
         mHandler = new Handler(looper);
@@ -120,6 +122,7 @@ public class ActiveModeWarden {
         mBatteryStatsManager = batteryStatsManager;
         mScanRequestProxy = wifiInjector.getScanRequestProxy();
         mWifiNative = wifiNative;
+        mWifiMetrics = wifiMetrics;
         mWifiController = new WifiController();
 
         wifiNative.registerStatusListener(isReady -> {
@@ -660,6 +663,7 @@ public class ActiveModeWarden {
             } else {
                 setInitialState(mDisabledState);
             }
+            mWifiMetrics.noteWifiEnabledDuringBoot(mSettingsStore.isWifiToggleEnabled());
             mContext.registerReceiver(new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
@@ -698,19 +702,21 @@ public class ActiveModeWarden {
             private void enterEmergencyMode() {
                 stopSoftApModeManagers(WifiManager.IFACE_IP_MODE_UNSPECIFIED);
                 boolean configWiFiDisableInECBM = mFacade.getConfigWiFiDisableInECBM(mContext);
-                log("WifiController msg getConfigWiFiDisableInECBM " + configWiFiDisableInECBM);
+                log("Entering emergency callback mode, "
+                        + "CarrierConfigManager.KEY_CONFIG_WIFI_DISABLE_IN_ECBM: "
+                        + configWiFiDisableInECBM);
                 if (configWiFiDisableInECBM) {
                     shutdownWifi();
                 }
             }
 
             private void exitEmergencyMode() {
-                if (shouldEnableSta()) {
-                    startClientModeManager();
-                    transitionTo(mEnabledState);
-                } else {
-                    transitionTo(mDisabledState);
-                }
+                log("Exiting emergency callback mode");
+                // may be in DisabledState or EnabledState (depending on whether Wifi was shut down
+                // in enterEmergencyMode() or not based on getConfigWiFiDisableInECBM).
+                // Let wifiToggled() handling decide what the next state should be, or if we're
+                // already in the correct state.
+                wifiToggled();
             }
 
             @Override
@@ -731,10 +737,27 @@ public class ActiveModeWarden {
                     // already in emergency mode, drop all messages other than mode stop messages
                     // triggered by emergency mode start.
                     if (msg.what == CMD_STA_STOPPED || msg.what == CMD_AP_STOPPED) {
+                        log("Processing message in Emergency Callback Mode: " + msg);
                         if (!hasAnyModeManager()) {
                             log("No active mode managers, return to DisabledState.");
                             transitionTo(mDisabledState);
                         }
+                    } else if (msg.what == CMD_SET_AP
+                                && msg.arg1 == 1) { // arg1 == 1 => enable AP
+                        log("AP cannot be started in Emergency Callback Mode: " + msg);
+                        // SoftAP was disabled upon entering emergency mode. It also cannot be
+                        // re-enabled during emergency mode. Drop the message and invoke the failure
+                        // callback.
+                        SoftApModeConfiguration softApConfig =
+                                (SoftApModeConfiguration) msg.obj;
+                        WifiManager.SoftApCallback callback =
+                                softApConfig.getTargetMode() == IFACE_IP_MODE_LOCAL_ONLY
+                                        ? mLohsCallback : mSoftApCallback;
+                        // need to notify SoftApCallback that start/stop AP failed
+                        callback.onStateChanged(WifiManager.WIFI_AP_STATE_FAILED,
+                                WifiManager.SAP_START_FAILURE_GENERAL);
+                    } else {
+                        log("Dropping message in emergency callback mode: " + msg);
                     }
                     return HANDLED;
                 }
@@ -867,16 +890,27 @@ public class ActiveModeWarden {
             public void exit() {
                 log("EnabledState.exit()");
                 if (hasAnyModeManager()) {
-                    Log.e(TAG, "Existing EnabledState, but has active mode managers");
+                    Log.e(TAG, "Exiting EnabledState, but has active mode managers");
                 }
                 super.exit();
+            }
+
+            // TODO(b/170076208): Temporary fix in R for battery saver mode toggling AP off on every
+            // screen off/on.
+            private boolean isApEnabledOnNonStaApConcurrencySupportedDevice() {
+                return hasAnySoftApManager() && !isStaApConcurrencySupported();
             }
 
             @Override
             public boolean processMessageFiltered(Message msg) {
                 switch (msg.what) {
-                    case CMD_WIFI_TOGGLED:
                     case CMD_SCAN_ALWAYS_MODE_CHANGED:
+                        if (isApEnabledOnNonStaApConcurrencySupportedDevice()) {
+                            Log.i(TAG, "Ignoring scan always mode changed since AP is enabled");
+                            break;
+                        }
+                        // intentional fallthrough
+                    case CMD_WIFI_TOGGLED:
                         if (shouldEnableSta()) {
                             if (hasAnyClientModeManager()) {
                                 switchAllClientModeManagers();
