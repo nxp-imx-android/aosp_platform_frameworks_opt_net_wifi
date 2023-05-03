@@ -158,6 +158,9 @@ wifi_cc_defaults {
             synadhd: {
                 whole_static_libs: ["libwifi-hal-syna"],
             },
+            nxp: {
+                whole_static_libs: ["libwifi-hal-nxp"],
+            },
             qcwcn: {
                 whole_static_libs: ["libwifi-hal-qcom"],
             },
